@@ -3,6 +3,8 @@
 
 #include <libavformat/avformat.h>
 
-void compress_file(const char *in, const char *out);
+#define TARGET_SIZE (8 * 1024 * 1024)
+
+void compress_file(const char *in, const char *out, double factor);
 
 #endif

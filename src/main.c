@@ -1,19 +1,53 @@
 #include "transcoder.h"
-#include <stdio.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-const char *infile = "copy.mkv";
-const char *outfile = "out.mkv";
+const char *infile = "jp.mkv";
+const char *outfile = "term.mkv";
 
-int compute_bit_rate(AVFormatContext *ctx) {
-  int targetSizeKilobytes = 8192;
-  int targetSizeBytes = targetSizeKilobytes * 1024;
-  uint64_t duration = ctx->duration / AV_TIME_BASE;
-  uint64_t result = targetSizeBytes / duration;
-  printf("Output bitrate = %lu\n", result);
-  return result;
+static off_t get_file_size(const char *filename) {
+  int fd = open(filename, O_RDONLY);
+  if (fd < 0)
+    return INT_MAX;
+
+  struct stat buf;
+  fstat(fd, &buf);
+  close(fd);
+  return buf.st_size;
+}
+
+static double get_next_factor(const char *filename) {
+  off_t filesize = get_file_size(filename);
+  double percent_of_target = (100.f / TARGET_SIZE) * filesize;
+  double factor = 100.f / percent_of_target;
+  return factor;
 }
 
 int main() {
-  compress_file("in.mkv", "out.mkv");
+  double factor = 1;
+  int attemps = 0;
+
+  char in_filename[16] = {0};
+  char out_filename[16] = {0};
+  snprintf(in_filename, 16, "%s", infile);
+
+  do {
+    snprintf(out_filename, 16, "%d-%s", attemps, outfile);
+    compress_file(in_filename, out_filename, factor);
+    strncpy(in_filename, out_filename, 16);
+
+    factor = get_next_factor(out_filename);
+    attemps++;
+  } while (factor > 1.1);
+
+  rename(out_filename, outfile);
+  for (int i = 0; i < attemps - 1; i++) {
+    char remove_name[16];
+    snprintf(out_filename, 16, "%d-%s", i, outfile);
+    remove(remove_name);
+  }
+
   return 0;
 }

@@ -7,7 +7,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static FileContext *duplicate_format(FileContext *in_ctx, const char *outfile) {
+uint64_t bitrate = 0;
+
+int compute_bit_rate(AVFormatContext *ctx, double factor) {
+  uint64_t duration = ctx->duration / AV_TIME_BASE;
+  if (bitrate == 0) {
+    bitrate = TARGET_SIZE / duration;
+  } else {
+    bitrate = bitrate * factor;
+  }
+  printf("Output bitrate = %lu\n", bitrate);
+  return bitrate;
+}
+
+static FileContext *duplicate_format(FileContext *in_ctx, const char *outfile,
+                                     double factor) {
   int ret;
   FileContext *out_ctx = av_calloc(1, sizeof(FileContext));
   if (!out_ctx) {
@@ -46,7 +60,7 @@ static FileContext *duplicate_format(FileContext *in_ctx, const char *outfile) {
       enc_ctx->height = dec_ctx->height;
       enc_ctx->width = dec_ctx->width;
 
-      enc_ctx->bit_rate = 100 * 1000;
+      enc_ctx->bit_rate = compute_bit_rate(c, factor);
 
       enc_ctx->sample_aspect_ratio = dec_ctx->sample_aspect_ratio;
       enc_ctx->pix_fmt = dec_ctx->pix_fmt;
@@ -83,6 +97,7 @@ static FileContext *duplicate_format(FileContext *in_ctx, const char *outfile) {
     }
 
     out_stream->time_base = enc_ctx->time_base;
+    // TODO: Fixed audio and video index
     out_ctx->streams[i].codec = enc_ctx;
   }
 
@@ -102,7 +117,9 @@ static void transcode_stream(FileContext *in, FileContext *out) {
     exit(1);
   }
 
-  printf("%ld\n", in->format->duration / AV_TIME_BASE);
+  AVRational f = in->streams[0].codec->framerate;
+  int framerate = (double)f.num / (double)f.den;
+  int nb_frames = (in->format->duration / AV_TIME_BASE) * framerate;
 
   int x = 0;
   while (1) {
@@ -117,35 +134,36 @@ static void transcode_stream(FileContext *in, FileContext *out) {
       exit(1);
     }
 
-    x++;
-    if (x % 200 == 0) {
-      printf("%d\n", x);
+    if (in->streams[pkt->stream_index].codec->codec_type ==
+        AVMEDIA_TYPE_VIDEO) {
+      x++;
+      if (x % framerate == 0) {
+        printf("%d / %d (%f)\n", x, nb_frames, (float)x / (float)nb_frames);
+      }
     }
 
     encode_video(in, out, pkt, frame);
     av_packet_unref(pkt);
   }
 
-  printf("Flushing decoder\n");
-
-  //TODO: Add flusing encoder and decoder before exiting transcoding
   av_packet_unref(pkt);
+
+  // Flushing
   int ret = read_frame(in, pkt, &frame);
   if (ret < 0 && ret != AVERROR_EOF) {
-      fprintf(stderr, "Error flushing decoder\n");
-      exit(1);
+    fprintf(stderr, "Error flushing decoder\n");
+    exit(1);
   }
 
-  printf("Flushing encoder\n");
   encode_video(in, out, pkt, NULL);
 
   av_frame_free(&frame);
   av_packet_free(&pkt);
 }
 
-void compress_file(const char *in, const char *out) {
+void compress_file(const char *in, const char *out, double factor) {
   FileContext *in_ctx = open_file(in);
-  FileContext *out_ctx = duplicate_format(in_ctx, out);
+  FileContext *out_ctx = duplicate_format(in_ctx, out, factor);
 
   // Opens output file
   const AVOutputFormat *ofmt = out_ctx->format->oformat;

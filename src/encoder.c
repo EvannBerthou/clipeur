@@ -39,6 +39,8 @@ static void encode_write_frame(FileContext *in, FileContext *out,
   av_packet_free(&enc_pkt);
 }
 
+// Also compress audio bitrate.
+// TODO: Separate audio and video encofing
 void encode_video(FileContext *in, FileContext *out, AVPacket *pkt,
                   AVFrame *frame) {
   int stream_index = pkt->stream_index;
