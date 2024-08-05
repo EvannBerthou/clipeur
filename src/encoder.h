@@ -3,6 +3,10 @@
 
 #include "file.h"
 
-void encode_video(FileContext *in, FileContext *out, AVPacket *pkt, AVFrame *frame);
+void encode_frame(FileContext *in, FileContext *out, AVPacket *pkt,
+                  AVFrame *frame);
+
+void flush_frame(FileContext *in, FileContext *out, int stream_index,
+                 AVFrame *frame);
 
 #endif

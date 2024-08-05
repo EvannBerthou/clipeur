@@ -64,7 +64,8 @@ static FileContext *duplicate_format(FileContext *in_ctx, const char *outfile,
 
       enc_ctx->sample_aspect_ratio = dec_ctx->sample_aspect_ratio;
       enc_ctx->pix_fmt = dec_ctx->pix_fmt;
-      enc_ctx->time_base = c->streams[i]->time_base;
+      enc_ctx->time_base = av_inv_q(dec_ctx->framerate);
+      enc_ctx->framerate = dec_ctx->framerate;
     } else if (in_codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
       enc_ctx->sample_rate = dec_ctx->sample_rate;
       ret = av_channel_layout_copy(&enc_ctx->ch_layout, &dec_ctx->ch_layout);
@@ -126,14 +127,10 @@ static void transcode_stream(FileContext *in, FileContext *out) {
     int ret = read_frame(in, pkt, &frame);
     if (ret == AVERROR_EOF) {
       break;
-    } else if (ret == AVERROR(EAGAIN)) {
-      av_packet_unref(pkt);
-      continue;
     } else if (ret < 0) {
       fprintf(stderr, "Error reading frame\n");
       exit(1);
     }
-
     if (in->streams[pkt->stream_index].codec->codec_type ==
         AVMEDIA_TYPE_VIDEO) {
       x++;
@@ -142,20 +139,26 @@ static void transcode_stream(FileContext *in, FileContext *out) {
       }
     }
 
-    encode_video(in, out, pkt, frame);
+    encode_frame(in, out, pkt, frame);
     av_packet_unref(pkt);
   }
 
-  av_packet_unref(pkt);
-
-  // Flushing
-  int ret = read_frame(in, pkt, &frame);
-  if (ret < 0 && ret != AVERROR_EOF) {
-    fprintf(stderr, "Error flushing decoder\n");
-    exit(1);
+  // Flushing (is it working?)
+  for (int i = 0; i < 2; i++) {
+    AVCodecContext *c = in->streams[i].codec;
+    int ret = avcodec_send_packet(c, NULL);
+    while (ret >= 0) {
+      ret = avcodec_receive_frame(c, frame);
+      if (ret == AVERROR_EOF)
+        break;
+      else if (ret < 0) {
+        fprintf(stderr, "Error flushing decoder\n");
+      }
+      flush_frame(in, out, i, frame);
+    }
   }
 
-  encode_video(in, out, pkt, NULL);
+  encode_frame(in, out, pkt, NULL);
 
   av_frame_free(&frame);
   av_packet_free(&pkt);

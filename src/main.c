@@ -22,6 +22,7 @@ static double get_next_factor(const char *filename) {
   off_t filesize = get_file_size(filename);
   double percent_of_target = (100.f / TARGET_SIZE) * filesize;
   double factor = 100.f / percent_of_target;
+  printf("RESULT=%f (%f)\n", percent_of_target, factor);
   return factor;
 }
 
@@ -36,7 +37,6 @@ int main() {
   do {
     snprintf(out_filename, 16, "%d-%s", attemps, outfile);
     compress_file(in_filename, out_filename, factor);
-    strncpy(in_filename, out_filename, 16);
 
     factor = get_next_factor(out_filename);
     attemps++;
@@ -45,7 +45,8 @@ int main() {
   rename(out_filename, outfile);
   for (int i = 0; i < attemps - 1; i++) {
     char remove_name[16];
-    snprintf(out_filename, 16, "%d-%s", i, outfile);
+    snprintf(remove_name, 16, "%d-%s", i, outfile);
+    printf("Removing '%s'\n", remove_name);
     remove(remove_name);
   }
 

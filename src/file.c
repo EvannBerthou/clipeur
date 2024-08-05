@@ -45,10 +45,10 @@ FileContext *open_file(const char *filename) {
       exit(1);
     }
 
-    codec_ctx->pkt_timebase = stream->time_base;
     if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO ||
         codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
       if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
+        codec_ctx->pkt_timebase = stream->time_base;
         codec_ctx->framerate = av_guess_frame_rate(c, stream, NULL);
       }
       /* Open decoder */
