@@ -9,7 +9,7 @@
 
 uint64_t bitrate = 0;
 
-int compute_bit_rate(AVFormatContext *ctx, double factor) {
+static int compute_bit_rate(AVFormatContext *ctx, double factor) {
   uint64_t duration = ctx->duration / AV_TIME_BASE;
   if (bitrate == 0) {
     bitrate = TARGET_SIZE / duration;
@@ -18,6 +18,24 @@ int compute_bit_rate(AVFormatContext *ctx, double factor) {
   }
   printf("Output bitrate = %lu\n", bitrate);
   return bitrate;
+}
+
+static int64_t compute_pts(AVStream *s, int seconds, int offset) {
+  int64_t timestamp = seconds * AV_TIME_BASE;
+  int64_t pts = av_rescale_q(timestamp, AV_TIME_BASE_Q, s->time_base);
+  return pts - offset;
+}
+
+static int64_t seek_to_time_seconds(FileContext *in, int seconds) {
+  AVStream *s = in->format->streams[0];
+  int64_t pts = compute_pts(s, seconds, 0);
+
+  int ret = av_seek_frame(in->format, 0, pts, AVSEEK_FLAG_BACKWARD);
+  if (ret < 0) {
+    fprintf(stderr, "Error seeking\n");
+    exit(1);
+  }
+  return pts;
 }
 
 static FileContext *duplicate_format(FileContext *in_ctx, const char *outfile,
@@ -105,7 +123,8 @@ static FileContext *duplicate_format(FileContext *in_ctx, const char *outfile,
   return out_ctx;
 }
 
-static void transcode_stream(FileContext *in, FileContext *out) {
+static void transcode_stream(FileContext *in, FileContext *out,
+                             int64_t start_pts) {
   AVPacket *pkt = av_packet_alloc();
   if (!pkt) {
     fprintf(stderr, "Error allocating packet\n");
@@ -118,12 +137,14 @@ static void transcode_stream(FileContext *in, FileContext *out) {
     exit(1);
   }
 
+  int64_t max_pts = compute_pts(in->format->streams[0], 60, start_pts);
+  printf("Max pts=%ld\n", max_pts);
   AVRational f = in->streams[0].codec->framerate;
   int framerate = (double)f.num / (double)f.den;
-  int nb_frames = (in->format->duration / AV_TIME_BASE) * framerate;
 
   int x = 0;
-  while (1) {
+  int64_t encoded_pts = 0;
+  while (encoded_pts < max_pts) {
     int ret = read_frame(in, pkt, &frame);
     if (ret == AVERROR_EOF) {
       break;
@@ -133,13 +154,15 @@ static void transcode_stream(FileContext *in, FileContext *out) {
     }
     if (in->streams[pkt->stream_index].codec->codec_type ==
         AVMEDIA_TYPE_VIDEO) {
-      x++;
-      if (x % framerate == 0) {
-        printf("%d / %d (%f)\n", x, nb_frames, (float)x / (float)nb_frames);
+      if (x++ % framerate == 0) {
+        printf("%ld / %ld (%f)\n", encoded_pts, max_pts,
+               (float)encoded_pts / (float)max_pts);
       }
     }
 
-    encode_frame(in, out, pkt, frame);
+    int res = encode_frame(in, out, pkt, frame);
+    if (res)
+      encoded_pts = res;
     av_packet_unref(pkt);
   }
 
@@ -178,6 +201,9 @@ void compress_file(const char *in, const char *out, double factor) {
     }
   }
 
+  clear_start_pts();
+  int64_t pts = seek_to_time_seconds(in_ctx, 20);
+
   // Writes file header for output file
   int ret = avformat_write_header(out_ctx->format, NULL);
   if (ret < 0) {
@@ -185,7 +211,7 @@ void compress_file(const char *in, const char *out, double factor) {
     exit(1);
   }
 
-  transcode_stream(in_ctx, out_ctx);
+  transcode_stream(in_ctx, out_ctx, pts);
 
   av_write_trailer(out_ctx->format);
 
