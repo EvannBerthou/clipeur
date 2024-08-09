@@ -1,11 +1,12 @@
 #include "transcoder.h"
 #include <fcntl.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <libgen.h>
 
-const char *infile = "jp.mkv";
-const char *outfile = "term.mkv";
+#define MAX_INPUT_LENGTH 64
 
 static off_t get_file_size(const char *filename) {
   int fd = open(filename, O_RDONLY);
@@ -26,17 +27,30 @@ static double get_next_factor(const char *filename) {
   return factor;
 }
 
-int main() {
+int main(int argc, char **argv) {
+  if (argc != 5) {
+    fprintf(stderr, "Usage: %s <input> <output> <start_time> <end_time>",
+            argv[0]);
+    exit(1);
+  }
+  char *infile = argv[1];
+  char *outfile = argv[2];
+
+  char *filename = basename(outfile);
+  char *dirpath = dirname(outfile);
+  
+  // TODO: Add error handling
+  int start_time = strtol(argv[3], NULL, 10);
+  int end_time = strtol(argv[4], NULL, 10);
+
   double factor = 1;
   int attemps = 0;
 
-  char in_filename[16] = {0};
-  char out_filename[16] = {0};
-  snprintf(in_filename, 16, "%s", infile);
-
+  char out_filename[MAX_INPUT_LENGTH] = {0};
   do {
-    snprintf(out_filename, 16, "%d-%s", attemps, outfile);
-    compress_file(in_filename, out_filename, factor);
+    snprintf(out_filename, MAX_INPUT_LENGTH, "%s/%d-%s", dirpath, attemps, filename);
+    printf("X: %s\n", out_filename);
+    compress_file(infile, out_filename, start_time, end_time, factor);
 
     factor = get_next_factor(out_filename);
     attemps++;
@@ -44,8 +58,8 @@ int main() {
 
   rename(out_filename, outfile);
   for (int i = 0; i < attemps - 1; i++) {
-    char remove_name[16];
-    snprintf(remove_name, 16, "%d-%s", i, outfile);
+    char remove_name[MAX_INPUT_LENGTH];
+    snprintf(remove_name, MAX_INPUT_LENGTH, "%d-%s", i, outfile);
     printf("Removing '%s'\n", remove_name);
     remove(remove_name);
   }
